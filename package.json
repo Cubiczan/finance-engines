@@ -1,7 +1,7 @@
 {
   "name": "@cubiczan/finance-engines",
   "version": "0.1.0",
-  "description": "Deterministic finance engines for AI agents: commodity margins, loan covenants, invoice audit - as a TypeScript library and a licensed MCP server.",
+  "description": "Deterministic finance engines for AI agents: commodity margins, loan covenants, invoice audit, AP exceptions, and five-day close - as a TypeScript library and a licensed MCP server.",
   "license": "UNLICENSED",
   "author": "Shyam Desigan (Cubiczan) <sam@cubiczan.com>",
   "type": "module",
@@ -27,7 +27,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "example:close": "npm run build && node examples/five-day-close/run.mjs"
   },
   "engines": {
     "node": ">=18.17"
@@ -38,6 +39,8 @@
     "margin",
     "covenant",
     "invoice-audit",
+    "five-day-close",
+    "ap-exceptions",
     "deterministic",
     "agents"
   ],

@@ -1,13 +1,14 @@
 /**
  * @cubiczan/finance-engines — deterministic finance engines for AI agents.
  *
- * Three pure, offline engines usable directly as a library (this module) or
+ * Pure, offline engines usable directly as a library (this module) or
  * over MCP (bin: finance-engines-mcp):
  *   - margin:   commodity-linked product economics, price sensitivity,
  *               breakeven, and contract structure evaluation
  *   - covenant: trial-balance parsing, covenant metrics, evaluation, and
  *               compliance certificate rendering
  *   - audit:    vendor-invoice anomaly rules and invoice-number normalization
+ *   - close:    five-day close readiness, AP exception taxonomy, operator metrics
  *
  * Copyright (c) 2026 Shyam Desigan (Cubiczan). All rights reserved.
  * Commercial license required — see LICENSE.md.
@@ -82,3 +83,72 @@ export {
   rateChanges,
   runAllAuditRules,
 } from "./audit/rules.js";
+
+// AP exceptions (extends invoice audit)
+export type {
+  ApException,
+  ApExceptionCode,
+  ApExceptionConfig,
+  ApInvoiceRow,
+  ApReasonCode,
+  DoubleHandlingInput,
+  InvoiceReview,
+  StraightThroughInput,
+  TaxonomyEntry,
+} from "./audit/exceptions.js";
+export {
+  AP_EXCEPTION_CODES,
+  AP_REASON_CODES,
+  DEFAULT_HANDLING_MINUTES,
+  DEFAULT_RETOUCH_MINUTES,
+  apExceptionTaxonomy,
+  classifyApExceptions,
+  doubleHandlingMinutes,
+  exceptionAgeHours,
+  runInvoiceReview,
+  straightThroughRate,
+} from "./audit/exceptions.js";
+
+// Five-day close
+export type {
+  CloseConfig,
+  CloseException,
+  CloseExceptionStatus,
+  CloseGateId,
+  CloseGateResult,
+  CloseGateStatus,
+  CloseMetrics,
+  ClosePeriod,
+  CloseReadinessReport,
+  CloseWorkflowInput,
+  CloseWorkflowReport,
+  ControllerSignoff,
+  CovenantFlash,
+  ErpSource,
+  EvidenceArtifact,
+  EvidenceKind,
+  ReconciliationCoverage,
+  ReconciliationItem,
+  ReconciliationStatus,
+  SourceInventoryRow,
+  SubledgerCutoff,
+  SubledgerName,
+} from "./close/types.js";
+export {
+  CLOSE_GATES,
+  DEFAULT_CLOSE_CONFIG,
+  GATE_DAYS,
+} from "./close/types.js";
+export {
+  assessCloseReadiness,
+  computeCloseMetrics,
+  hoursToClose,
+  inventorySources,
+  reconciliationCoverage,
+  resolveCloseConfig,
+} from "./close/readiness.js";
+export {
+  closeGateOrder,
+  defaultCloseWindowHours,
+  runFiveDayClose,
+} from "./close/workflow.js";
