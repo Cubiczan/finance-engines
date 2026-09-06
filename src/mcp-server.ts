@@ -2,10 +2,11 @@
 /**
  * MCP server for @cubiczan/finance-engines (stdio transport).
  *
- * Exposes the three deterministic engines — commodity margins, loan
- * covenants, invoice audit — as Model Context Protocol tools. Thin wrapper:
- * all numeric logic lives in the library modules and is reused verbatim.
- * Fully offline; when config/prices are omitted the bundled defaults apply.
+ * Exposes the deterministic engines — commodity margins, loan covenants,
+ * invoice audit, AP exceptions, and five-day close — as Model Context
+ * Protocol tools. Thin wrapper: all numeric logic lives in the library
+ * modules and is reused verbatim. Fully offline; when config/prices are
+ * omitted the bundled defaults apply.
  *
  * Copyright (c) 2026 Shyam Desigan (Cubiczan). All rights reserved.
  * Commercial license required — see LICENSE.md.
@@ -15,8 +16,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import type { ApExceptionConfig, ApInvoiceRow } from "./audit/exceptions.js";
+import {
+  apExceptionTaxonomy,
+  classifyApExceptions,
+} from "./audit/exceptions.js";
 import type { AuditConfig, InvoiceRow, ItemRow } from "./audit/rules.js";
 import { normalizeInvoiceNumber, runAllAuditRules } from "./audit/rules.js";
+import type { CloseWorkflowInput } from "./close/types.js";
+import { assessCloseReadiness } from "./close/readiness.js";
+import { runFiveDayClose } from "./close/workflow.js";
 import { defaultCovenantConfig } from "./covenant/defaults.js";
 import type {
   CovenantConfig,
@@ -44,10 +53,11 @@ const server = new McpServer(
     instructions:
       "Deterministic, offline finance engines: index-linked commodity margins " +
       "and contract structures; loan covenant metrics, evaluation, and " +
-      "compliance certificates; and vendor-invoice anomaly detection. All " +
-      "tools are pure functions over the supplied inputs — no network, no " +
-      "state. When config/prices are omitted, bundled sample defaults apply. " +
-      "Licensed commercial software (contact sam@cubiczan.com).",
+      "compliance certificates; vendor-invoice anomaly detection; AP exception " +
+      "taxonomy; and a five-day close readiness workflow. All tools are pure " +
+      "functions over the supplied inputs — no network, no state. When " +
+      "config/prices are omitted, bundled sample defaults apply. Licensed " +
+      "commercial software (contact sam@cubiczan.com).",
   },
 );
 
@@ -181,7 +191,13 @@ const covenantConfigParam = z
 const uipathHandoffParam = z
   .object({
     kind: z
-      .enum(["audit_invoices", "compliance_certificate", "evaluate_contracts"])
+      .enum([
+        "audit_invoices",
+        "compliance_certificate",
+        "evaluate_contracts",
+        "classify_ap_exceptions",
+        "five_day_close",
+      ])
       .describe("Which deterministic engine the UiPath handoff should trigger."),
     source: z.string().optional().describe("Optional source label from UiPath."),
     summary: z.string().optional().describe("Optional UiPath summary to echo back."),
@@ -210,6 +226,10 @@ const uipathHandoffParam = z
     amount_outlier_multiple: z.number().optional(),
     rate_change_pct: z.number().optional(),
     min_invoices_for_baseline: z.number().int().optional(),
+    close: z
+      .record(z.any())
+      .optional()
+      .describe("Five-day close payload (period, now, sources, …) for five_day_close."),
   })
   .describe("Thin UiPath handoff wrapper over the deterministic engines.");
 
@@ -371,13 +391,92 @@ server.registerTool(
   async ({ number }) => textResult(normalizeInvoiceNumber(number)),
 );
 
+const closePayloadParam = z
+  .record(z.any())
+  .describe(
+    "Close payload: period {label, period_end}, now (ISO), freeze_at, " +
+      "sources[], cutoffs[], reconciliations[], evidence[], invoices[], " +
+      "optional items/exceptions/signoff/trial_balance/config.",
+  );
+
+server.registerTool(
+  "classify_ap_exceptions",
+  {
+    title: "Classify AP exceptions",
+    description:
+      "Classify vendor invoices into the AP exception taxonomy: duplicate " +
+      "invoice (reuses audit normalize/duplicate rules), missing/mismatched " +
+      "PO, missing receipt, wrong legal entity, tax review, and ownerless " +
+      "approval. Each exception includes confidence and a stable reason code. " +
+      "Invoices without match-context fields are only eligible for duplicate " +
+      "and inconsistent-tax reuse.",
+    inputSchema: {
+      invoices: z
+        .array(z.record(z.any()))
+        .describe("Invoice rows plus optional PO/receipt/entity/tax/approval fields."),
+      items: z
+        .array(z.record(z.any()))
+        .optional()
+        .describe("Optional line items (enables inconsistent-tax → tax_review)."),
+      po_amount_tolerance_pct: z.number().optional(),
+      include_duplicates: z.boolean().optional(),
+      include_audit_tax: z.boolean().optional(),
+      today: z.string().optional(),
+    },
+  },
+  async ({ invoices, items, ...cfg }) => {
+    const config: ApExceptionConfig = Object.fromEntries(
+      Object.entries(cfg).filter(([, v]) => v !== undefined),
+    );
+    return jsonResult({
+      taxonomy: apExceptionTaxonomy(),
+      exceptions: classifyApExceptions(
+        invoices as unknown as ApInvoiceRow[],
+        (items ?? []) as unknown as ItemRow[],
+        config,
+      ),
+    });
+  },
+);
+
+server.registerTool(
+  "close_readiness",
+  {
+    title: "Close readiness",
+    description:
+      "Inventory ERP extracts, flag stale inputs, report reconciliation " +
+      "coverage, and compute hours-to-close from freeze (or earliest extract) " +
+      "to sign-off or the supplied `now`. Does not mutate state. Pass " +
+      "precomputed exceptions or invoices to include STP / double-handling.",
+    inputSchema: { close: closePayloadParam },
+  },
+  async ({ close }) => jsonResult(assessCloseReadiness(close as unknown as CloseWorkflowInput)),
+);
+
+server.registerTool(
+  "five_day_close",
+  {
+    title: "Five-day close workflow",
+    description:
+      "Run the six-gate five-day close reference: source freeze, subledger " +
+      "cutoffs, reconciliation queue, evidence bundle, exception SLA, and " +
+      "controller sign-off. Classifies AP exceptions when invoices are " +
+      "supplied, optionally flashes covenants, and returns operator metrics " +
+      "(straight-through rate, double-handling minutes, stale-input rate, " +
+      "hours-to-close).",
+    inputSchema: { close: closePayloadParam },
+  },
+  async ({ close }) => jsonResult(runFiveDayClose(close as unknown as CloseWorkflowInput)),
+);
+
 server.registerTool(
   "uipath_handoff",
   {
     title: "UiPath handoff",
     description:
       "Accept a UiPath payload and route it to the matching deterministic " +
-      "engine: invoice audit, covenant certificate, or contract evaluation.",
+      "engine: invoice audit, covenant certificate, contract evaluation, " +
+      "AP exception classification, or five-day close.",
     inputSchema: uipathHandoffParam,
   },
   async ({
@@ -395,6 +494,7 @@ server.registerTool(
     amount_outlier_multiple,
     rate_change_pct,
     min_invoices_for_baseline,
+    close,
   }) => {
     const meta = {
       ok: true,
@@ -444,6 +544,30 @@ server.registerTool(
           results,
           certificate: certificateMarkdown(results, metrics, period),
         },
+      });
+    }
+
+    if (kind === "classify_ap_exceptions") {
+      if (!invoices) {
+        throw new Error("UiPath AP-exception handoff requires invoices");
+      }
+      return jsonResult({
+        ...meta,
+        result: classifyApExceptions(
+          invoices as unknown as ApInvoiceRow[],
+          (items ?? []) as unknown as ItemRow[],
+          (config as ApExceptionConfig | undefined) ?? {},
+        ),
+      });
+    }
+
+    if (kind === "five_day_close") {
+      if (!close) {
+        throw new Error("UiPath five-day-close handoff requires close payload");
+      }
+      return jsonResult({
+        ...meta,
+        result: runFiveDayClose(close as unknown as CloseWorkflowInput),
       });
     }
 
