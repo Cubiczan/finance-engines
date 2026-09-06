@@ -1,11 +1,11 @@
 # @cubiczan/finance-engines
 
 **Deterministic finance engines for AI agents: commodity margins, loan
-covenants, invoice audit — as a TypeScript library and a licensed MCP
-server.**
+covenants, invoice audit, AP exceptions, and five-day close — as a
+TypeScript library and a licensed MCP server.**
 
 LLM agents are good at judgment and bad at arithmetic. This package gives them
-the arithmetic: three pure, offline, fully deterministic engines that always
+the arithmetic: pure, offline, fully deterministic engines that always
 return the same numbers for the same inputs — no network, no state, no
 hallucinated math. Use them directly from TypeScript/JavaScript, or hand them
 to any MCP-compatible agent (Claude Code, Claude Desktop, Cursor, custom
@@ -29,6 +29,11 @@ agents) as a stdio tool server.
 - **Audit** — vendor-invoice anomaly detection for procure-to-pay: duplicate
   invoice numbers, entry lag, overdue-unpaid, amount outliers, unit-rate
   changes, new charge types, unexplained credits, inconsistent tax.
+- **Close** — multi-ERP five-day-close readiness (source freeze, subledger
+  cutoffs, reconciliation queue, evidence bundle, exception SLA, controller
+  sign-off) plus an AP exception taxonomy with confidence and reason codes.
+  Operator metrics: straight-through rate, synthetic double-handling minutes,
+  stale-input rate, hours-to-close.
 
 ## Quickstart — library
 
@@ -41,6 +46,7 @@ import {
   productEconomics, sensitivity, breakevenPrices, evaluateAllContracts,
   parseXeroTrialBalance, computeMetrics, evaluateCovenants, certificateMarkdown,
   runAllAuditRules, normalizeInvoiceNumber,
+  classifyApExceptions, runFiveDayClose, assessCloseReadiness,
   defaultMarginConfig, defaultCovenantConfig,
 } from "@cubiczan/finance-engines";
 
@@ -60,6 +66,10 @@ const certificate = certificateMarkdown(results, metrics, "Q2 2026");
 // Invoice audit: plain rows in, findings out
 const findings = runAllAuditRules(invoiceRows, itemRows, { today: "2026-07-03" });
 normalizeInvoiceNumber("#INV20481"); // -> "20481"
+
+// AP exceptions + five-day close: see the cookbook below
+const exceptions = classifyApExceptions(invoiceRows, itemRows);
+const close = runFiveDayClose(closePayload); // period, now, freeze_at, sources, …
 ```
 
 The engine core has **zero runtime dependencies** (the MCP SDK is only loaded
@@ -108,18 +118,91 @@ bundled sample defaults apply — supply your own to price your own book.
 | `compliance_certificate` | covenant | End-to-end signable markdown covenant certificate for a period |
 | `audit_invoices` | audit | Run all eight invoice anomaly rules over supplied invoice/item rows |
 | `normalize_invoice_number` | audit | Canonicalize an invoice number for duplicate detection |
-| `uipath_handoff` | UiPath | Route a UiPath payload to invoice audit, covenant certificate, or contract evaluation |
+| `classify_ap_exceptions` | audit | AP exception taxonomy with confidence + reason codes (reuses duplicate/tax rules) |
+| `close_readiness` | close | Inventory extracts, stale inputs, reconciliation coverage, hours-to-close |
+| `five_day_close` | close | Six-gate five-day close + metrics; optional covenant evidence |
+| `uipath_handoff` | UiPath | Route a UiPath payload to invoice audit, covenant certificate, contract evaluation, AP exceptions, or five-day close |
 
 ## Development
 
 ```bash
 npm install
-npm run build   # tsc -> dist/
-npm test        # builds, then runs all ported suites + MCP smoke test (node --test)
+npm run build          # tsc -> dist/
+npm test               # builds, then runs all suites + MCP smoke test (node --test)
+npm run example:close  # multi-ERP five-day close fixture
 ```
 
 The test suites mirror the donor Python test suites number-for-number (same
 fixtures, same hand-computed expectations), proving the ports equivalent.
+
+## Cookbook — five-day close + AP exceptions
+
+PE-style close pressure (multiple ERPs, five-day clock, AP exceptions killing
+straight-through rate) is the operator problem this example is built against.
+The engines stay offline and deterministic; they do **not** talk to NetSuite,
+SAP, or Xero.
+
+```bash
+npm run example:close
+# or, after a build:
+node examples/five-day-close/run.mjs
+```
+
+The fixture (`examples/five-day-close/fixture.json`) is a synthetic June 2026
+close across three ERPs:
+
+| System | ERP | Entity |
+|---|---|---|
+| `netsuite-us` | NetSuite | US HoldCo |
+| `sap-de` | SAP | DE OpCo GmbH |
+| `xero-uk` | Xero | UK Shared Services Ltd |
+
+It walks the six gates — source freeze, subledger cutoffs, reconciliation
+queue, evidence bundle, exception SLA, controller sign-off — and classifies
+the AP corpus (duplicates reuse `normalizeInvoiceNumber`; plus missing /
+mismatched PO, missing receipt, wrong legal entity, tax review, ownerless
+approval).
+
+Library equivalent:
+
+```ts
+import { readFileSync } from "node:fs";
+import { runFiveDayClose, classifyApExceptions, apExceptionTaxonomy } from "@cubiczan/finance-engines";
+
+const payload = JSON.parse(readFileSync("examples/five-day-close/fixture.json", "utf8"));
+const report = runFiveDayClose(payload);
+// report.gates, report.metrics, report.exceptions, report.covenant, report.signoff_ready
+```
+
+Pass the same payload to MCP tools `five_day_close` / `close_readiness`
+(`{ "close": { …payload } }`) or `classify_ap_exceptions`.
+
+### Illustrative vs production
+
+**Deterministic engine (this package)**
+
+- Gate status, stale flags, coverage, hours-to-close, exception codes /
+  reason codes / confidence, and the four operator metrics — given the
+  same payload, every run returns the same JSON.
+- Duplicate detection is the existing audit normalizer, not a second scheme.
+- Covenant flash, when a trial balance is supplied, is the existing covenant
+  engine (same certificate markdown).
+
+**Illustrative only (do not treat as measured ops data)**
+
+- Every timestamp in the fixture (`now`, `freeze_at`, extract times, SLA
+  clocks). Production should inject real freeze/extract/sign-off times.
+- Double-handling **minutes** — a published synthetic table
+  (`DEFAULT_HANDLING_MINUTES` + retouch minutes), not stopwatch data.
+- Entity names, checksums, invoice amounts, and the mid-close “blocked”
+  story (stale Xero extract, open intercompany rec, past-SLA exceptions,
+  DSCR breach).
+- No ERP connector, OCR, workflow engine, or system of record. Straight-
+  through rate here is **exception-free invoices / invoices**, not OCR
+  capture rate.
+
+Taxonomy: [docs/ap-exceptions.md](./docs/ap-exceptions.md).  
+Gates and metrics: [docs/five-day-close.md](./docs/five-day-close.md).
 
 ---
 

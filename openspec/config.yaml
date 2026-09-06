@@ -1,0 +1,7 @@
+schema: spec-driven
+context: |
+  @cubiczan/finance-engines is a deterministic TypeScript library plus MCP
+  server (margin, covenant, invoice audit). Engine core must stay offline
+  and pure. Package license is UNLICENSED — do not change it. Prefer
+  extending existing audit duplicate/tax rules over rewriting them.
+  Brownfield: spec only the capabilities this change touches.
