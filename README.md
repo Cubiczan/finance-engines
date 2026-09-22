@@ -77,6 +77,40 @@ by the server entry point).
 
 UiPath can hand invoice rows, trial balances, or contract payloads to the same deterministic tools through the `uipath_handoff` MCP tool or directly into the library.
 
+## Procurement-profitability integration contract
+
+The package exports a type-only boundary for callers that coordinate covenant
+checks, invoice audit, AP exceptions, and a five-day close:
+
+```ts
+import {
+  type CovenantCheckInput,
+  type InvoiceAuditInput,
+  type APExceptionsInput,
+  type FiveDayCloseInput,
+  type ProcurementProfitabilityAdapter,
+} from "@cubiczan/finance-engines";
+
+const adapter: ProcurementProfitabilityAdapter = {
+  checkCovenant: (input: CovenantCheckInput) => {
+    // Call parse/compute/evaluate/certificate from this package here.
+    return callerOwnedCovenantResult(input);
+  },
+  auditInvoices: (input: InvoiceAuditInput) => callerOwnedInvoiceAudit(input),
+  reviewAPExceptions: (input: APExceptionsInput) => callerOwnedAPReview(input),
+  assessFiveDayClose: (input: FiveDayCloseInput) => callerOwnedCloseReview(input),
+};
+```
+
+`CovenantCheckInput`/`Output` and `InvoiceAuditInput`/`Output` use the package's
+existing typed engine rows and results. `APExceptions*` and `FiveDayClose*`
+describe caller-owned workflow data; this package does not persist, fetch, or
+resolve those records. Every contract carries `provenance.invocation: "dependency"`
+to make that boundary explicit. This example is an integration contract only:
+callers must have a commercial license and must depend on this package rather
+than copy its internals. See [LICENSE.md](./LICENSE.md) and
+[PROVENANCE.md](./PROVENANCE.md).
+
 ## Quickstart — MCP server
 
 The package ships a stdio MCP server as the `finance-engines-mcp` binary.

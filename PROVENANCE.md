@@ -18,4 +18,10 @@ Precoro, AlphaVantage, web UIs, SQLite persistence) was deliberately **not**
 ported: this package contains only the deterministic, offline engine cores and
 their MCP tool surface.
 
+The exported `src/procurement/contracts.ts` module is a public integration
+boundary, not a port of caller implementations. Procurement-profitability
+callers invoke this package as a licensed dependency for covenant and invoice
+audit calculations; AP exception handling and five-day close workflow logic
+remain caller-owned. No package internals are copied into those callers.
+
 This package is proprietary; see [LICENSE.md](./LICENSE.md).

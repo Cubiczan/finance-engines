@@ -152,3 +152,26 @@ export {
   defaultCloseWindowHours,
   runFiveDayClose,
 } from "./close/workflow.js";
+
+// Procurement-to-profitability integration boundary
+export {
+  PROCUREMENT_PROFITABILITY_CONTRACT_VERSION,
+} from "./procurement/contracts.js";
+export type {
+  APException,
+  APExceptionKind,
+  APExceptionStatus,
+  APExceptionsInput,
+  APExceptionsOutput,
+  CloseDay,
+  CloseTaskStatus,
+  CovenantCheckInput,
+  CovenantCheckOutput,
+  FiveDayCloseInput,
+  FiveDayCloseOutput,
+  FiveDayCloseTask,
+  IntegrationProvenance,
+  InvoiceAuditInput,
+  InvoiceAuditOutput,
+  ProcurementProfitabilityAdapter,
+} from "./procurement/contracts.js";
